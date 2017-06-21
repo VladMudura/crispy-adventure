@@ -21,9 +21,11 @@ import javax.swing.WindowConstants;
 
 import java.io.FileInputStream; 
 import java.io.FileNotFoundException; 
-import java.io.IOException; 
+import java.io.IOException;
+
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.xssf.usermodel.XSSFRow;
 import org.apache.poi.xssf.usermodel.XSSFSheet; 
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
@@ -72,7 +74,12 @@ public class COPDManagementTool {
 					trainModelPanel.remove(paramConfigPanel);
 					parameterConfigurations.clear();
 				}
-				paramConfigPanel = makeParamConfigPanel(selectedDB);
+				try {
+					paramConfigPanel = makeParamConfigPanel(selectedDB);
+				} catch (IOException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
 				trainModelPanel.add(paramConfigPanel);	
 			}
 			updateDBLabel(selectedDBLabel);
@@ -81,16 +88,17 @@ public class COPDManagementTool {
 		return trainModelPanel;
 	}
 
-	public JComponent makeParamConfigPanel(File selectedFile) {
+	public JComponent makeParamConfigPanel(File selectedFile) throws IOException {
 		JPanel paramConfigPanel = new JPanel();
 		paramConfigPanel.setLayout(new BoxLayout(paramConfigPanel, BoxLayout.Y_AXIS));
 
 
-		ExcelWorkbook excelWorkbook = readExcel();
+		XSSFSheet sheet = getExcelSheet(selectedFile);
+		String[] paramNames = readParamNames(sheet);
+		
+		for (int i =0; i<paramNames.length; i++) {
 
-		for (int i =0; i<excelWorkbook.paramNum; i++) {
-
-			ParameterConfiguration paramConfig = new ParameterConfiguration(excelWorkbook.paramNames[i]);
+			ParameterConfiguration paramConfig = new ParameterConfiguration(paramNames[i]);
 			this.parameterConfigurations.add(paramConfig);
 
 			Container riga = Box.createHorizontalBox();
@@ -178,6 +186,29 @@ public class COPDManagementTool {
 		newCOPDManagementTool.Start();
 	}
 
+	public XSSFSheet getExcelSheet (File selectedFile) throws IOException{
+		
+		FileInputStream fis = new FileInputStream(selectedFile);
+		XSSFWorkbook book = new XSSFWorkbook(fis);
+		XSSFSheet sheet = book.getSheetAt(0);
+		book.close();
+		return sheet;
+		
+	}
+	
+	public String[] readParamNames(XSSFSheet sheet){
+		
+		int paramNum = sheet.getRow(0).getLastCellNum();
+		String[] paramNames = new String[paramNum];
+		XSSFRow firstRow = sheet.getRow(0);
+		for(int i=0; i<paramNum;i++){
+			paramNames[i] = firstRow.getCell(i).getStringCellValue();
+		}
+			
+		return paramNames;
+		
+	}
+		
 	public ExcelWorkbook readExcel(){
 
 		ExcelWorkbook selectedFile = new ExcelWorkbook();
