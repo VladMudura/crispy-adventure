@@ -1,10 +1,13 @@
 package copdManagementTool;
+
 import java.awt.Container;
-//import java.awt.GridLayout;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+//import javax.script.ScriptEngine;
+//import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -20,15 +23,19 @@ import javax.swing.UIManager;
 import javax.swing.WindowConstants;
 
 import java.io.FileInputStream; 
-import java.io.FileNotFoundException; 
 import java.io.IOException;
 
 import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.Row.MissingCellPolicy;
 import org.apache.poi.xssf.usermodel.XSSFRow;
 import org.apache.poi.xssf.usermodel.XSSFSheet; 
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import com.github.rcaller.datatypes.DataFrame;
+import com.github.rcaller.rstuff.RCaller;
+//import com.github.rcaller.util.Globals;
+import com.github.rcaller.rstuff.RCode;
+//import com.github.rcaller.scriptengine.RCallerScriptEngine;
 
 public class COPDManagementTool {
 
@@ -44,11 +51,50 @@ public class COPDManagementTool {
 		}	
 	}
 
-	public void addestraModello() {
-		for (ParameterConfiguration cParam: this.parameterConfigurations) {
-			System.out.println("Colonna "+cParam.paramName+" incluso: "+cParam.getIsIncluded().isSelected()+
-					" tipo: "+cParam.getType().getSelectedItem()+" ruolo: "+cParam.getRole().getSelectedItem());
+	public C50Inputs getC50Inputs() throws IOException {
+		
+		C50Inputs c50Inputs = new C50Inputs();
+		XSSFSheet sheet = getExcelSheet(selectedDB);
+		int rowNum = sheet.getLastRowNum()+1;
+		//System.out.println(rowNum);
+		int colNum = parameterConfigurations.size();
+		int i=0, j = 0,k = 0;
+		
+		c50Inputs.inputValues = new Object[countIncludedInputs()][rowNum-1];
+		c50Inputs.targetValues = new Object[1][rowNum-1];
+		c50Inputs.inputNames = new String[countIncludedInputs()];
+		c50Inputs.targetNames = new String[1];
+		for (i=0; i< colNum;i++) {
+
+			if(parameterConfigurations.get(i).getIsIncluded().isSelected() == true){
+
+				if(parameterConfigurations.get(i).getRole().getSelectedItem() == "Input"){
+
+					for(j=0;j<rowNum;j++){
+
+						if(j!=0){
+							Cell currentCell = sheet.getRow(j).getCell(i,MissingCellPolicy.CREATE_NULL_AS_BLANK);
+							c50Inputs.inputValues[k][j-1] = getCellValue(currentCell);
+						}else{
+							c50Inputs.inputNames[k] = sheet.getRow(j).getCell(i).getStringCellValue();
+						}
+					}
+					k++;	
+				}else{
+					
+					for(j=0;j<rowNum;j++){
+						
+						if(j!=0){
+							Cell currentCell = sheet.getRow(j).getCell(i,MissingCellPolicy.CREATE_NULL_AS_BLANK);
+							c50Inputs.targetValues[0][j-1] = getCellValue(currentCell);
+						}else{
+							c50Inputs.targetNames[0] = sheet.getRow(j).getCell(i).getStringCellValue();
+						}
+					}
+				}
+			}
 		}
+		return c50Inputs;
 	}
 
 	public JComponent  makeTrainModelPanel(){
@@ -73,16 +119,18 @@ public class COPDManagementTool {
 				if (paramConfigPanel!=null) {
 					trainModelPanel.remove(paramConfigPanel);
 					parameterConfigurations.clear();
+					
 				}
 				try {
 					paramConfigPanel = makeParamConfigPanel(selectedDB);
 				} catch (IOException e1) {
-					// TODO Auto-generated catch block
 					e1.printStackTrace();
 				}
-				trainModelPanel.add(paramConfigPanel);	
+				trainModelPanel.add(paramConfigPanel);
+				trainModelPanel.revalidate();
 			}
 			updateDBLabel(selectedDBLabel);
+			
 		});
 
 		return trainModelPanel;
@@ -111,7 +159,11 @@ public class COPDManagementTool {
 		}
 		JButton trainModelButton = new JButton("Train Model");
 		trainModelButton.addActionListener((ae)->{
-			addestraModello();
+			try {
+				trainModel();
+			} catch (IOException | ScriptException e) {
+				e.printStackTrace();
+			}
 		});
 		paramConfigPanel.add(trainModelButton);
 		return paramConfigPanel;
@@ -209,63 +261,82 @@ public class COPDManagementTool {
 		
 	}
 		
-	public ExcelWorkbook readExcel(){
 
-		ExcelWorkbook selectedFile = new ExcelWorkbook();
-
-		FileInputStream fis = null;
-		try {
-			fis = new FileInputStream(selectedDB);
-		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+	public class C50Inputs{
+		String[] inputNames;
+		Object[][] inputValues;
+		String[] targetNames;
+		Object[][] targetValues;
+	}
+	
+	public void trainModel() throws IOException, ScriptException{
+		
+		C50Inputs inputs = getC50Inputs();
+		
+		for(int i=0;i<10;i++){
+			System.out.println(inputs.targetNames[0]);
+			System.out.println(inputs.targetValues[0][i]);
 		}
-		XSSFWorkbook book = null;
-		try {
-			book = new XSSFWorkbook(fis);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} 
-		XSSFSheet sheet = book.getSheetAt(0);
-		selectedFile.paramNum = sheet.getRow(0).getLastCellNum();
-		selectedFile.rowNum = sheet.getLastRowNum();
+		
+		
+		DataFrame inputsDataframe = DataFrame.create(inputs.inputValues,inputs.inputNames);
+		//DataFrame targetDataframe = DataFrame.create(inputs.targetValues,inputs.targetNames);
+		RCaller rCaller = RCaller.create();
+		RCode rCode = RCode.create();
+		//rCode.R_require("C50");
+		rCode.addDataFrame("Inputs", inputsDataframe);
+		convertToFactor(rCode,inputs.inputNames,"Inputs");
+		//rCode.addDataFrame("Target",targetDataframe);
+		//convertToFactor(rCode,inputs.targetNames,"Target");
+		//rCode.addRCode("CostMatrix = matrix(c(0,1,1,1,0,1,1,1,0),nrow=3,ncol=3,dimnames =list(c('1','2','3'),c('1','2','3'))))");
+		//rCode.addRCode("Control = C5.0Control(CF=0.8,minCases=1)");
+		//rCode.addRCode("TrainedModel = C5.0(Predictors,Target,control = Control, costs = CostMatrix)");
+		rCode.addRCode("saveRDS(Inputs,file='TrainedModel.rds')");
+		rCaller.setRCode(rCode);
+		rCaller.runOnly();	           
+	}
 
-		selectedFile.paramNames = new String[selectedFile.paramNum];
-		selectedFile.paramValues = new Object[selectedFile.paramNum][selectedFile.rowNum-1];
-
-
-		for(int j=0; j<selectedFile.rowNum;j++){
-			for(int i=0; i<selectedFile.paramNum;i++){
-				Cell currentCell = sheet.getRow(j).getCell(i);
-				if(j==0){
-					selectedFile.paramNames[i] = currentCell.getStringCellValue();
-				}
-				else{
-
-					if (currentCell.getCellTypeEnum() == CellType.STRING) {
-						selectedFile.paramValues[i][j-1] = currentCell.getStringCellValue();
-
-					} else if (currentCell.getCellTypeEnum() == CellType.NUMERIC) {
-						selectedFile.paramValues[i][j-1] = currentCell.getNumericCellValue();
-					}
-
-				}
+	public int countIncludedInputs(){
+		
+		int count = 0;
+		for(int i=0; i< parameterConfigurations.size();i++){
+			
+			if(parameterConfigurations.get(i).getIsIncluded().isSelected() == true && 
+					parameterConfigurations.get(i).getRole().getSelectedItem() == "Input" ){
+				count++;
 			}
-
 		}
-		return selectedFile;
-
+		 
+		return count;
+	}
+	
+	public void convertToFactor(RCode rCode, String[] paramList, String dataFrame){
+		
+		
+		for(int i=0; i< paramList.length;i++){
+			int j=0;
+			while(paramList[i].equals(parameterConfigurations.get(j).getParamName())==false){
+				j++;
+			}
+			if(parameterConfigurations.get(j).getType().getSelectedItem() == "Categoric"){
+				rCode.addInt("i", i);
+				rCode.addRCode(dataFrame+"[,i+1] = factor("+dataFrame+"[,i+1])");
+		}
 
 	}
-
-	public class ExcelWorkbook{
-		String[] paramNames;
-		Object[][] paramValues;
-		int paramNum;
-		int rowNum;
 	}
-
-
+		
+	public Object getCellValue(Cell currentCell){
+		
+		switch(currentCell.getCellTypeEnum()){
+		case NUMERIC: return currentCell.getNumericCellValue(); 
+		case STRING:  return currentCell.getStringCellValue();  
+		case BOOLEAN: return currentCell.getBooleanCellValue();
+		case BLANK: return "NA";
+		default: return "NA";
+		
+		
+		}
+	}
 
 }
